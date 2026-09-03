@@ -255,7 +255,7 @@ that celebrates rather than exoticizes the culture.
 
 | Consideration | Assessment |
 | ---- | ---- |
-| **Recommended Engine** | Godot 4.6 (GDScript) — matches this project's pinned engine version; strong 2D/3D mobile export, no licensing cost pressure for a solo first-time dev, sufficient for stylized (not photorealistic) 3D |
+| **Recommended Engine** | Godot 4.7.2 (GDScript) — matches this project's pinned engine version; strong 2D/3D mobile export, no licensing cost pressure for a solo first-time dev, sufficient for stylized (not photorealistic) 3D |
 | **Key Technical Challenges** | Low-end Android performance with stylized 3D + traffic AI + procedural road assembly simultaneously; tuning "easy to learn, hard to master" arcade driving feel; predictable-but-varied traffic AI; save data versioning for progression/customization |
 | **Art Style** | 3D stylized — colorful, clean, slightly exaggerated, strong silhouettes |
 | **Art Pipeline Complexity** | High — culturally specific vehicle/environment art (matatu liveries, Old Town architecture, coastal props) can't be asset-flipped from generic racing-game stores |
@@ -303,9 +303,17 @@ that celebrates rather than exoticizes the culture.
   does it need review/rewrite by a native-fluency reviewer before ship?
   Resolve via cultural review pass once conductor/passenger bark scripts
   exist, not by the author's own judgment alone.
-- Does the core swipe-driving loop hold up as fun in isolation before any
-  passengers, scoring, or progression are added? Resolve via `/prototype`
-  before any GDDs are written.
+- ~~Does the core swipe-driving loop hold up as fun in isolation before any
+  passengers, scoring, or progression are added?~~ **Resolved by
+  `/prototype swipe-driving-loop`** (2026-09-03, PROCEED verdict — see
+  `prototypes/swipe-driving-loop-concept/REPORT.md`): **partially**. Swipe
+  responsiveness holds up with no perceptible input delay. Dodging alone did
+  *not* hold up as fun — the playtester's own words were "there was none" and
+  "it was easy the whole time, nothing to react under pressure." Root cause
+  was single-lane-at-a-time obstacle spawning, not the control scheme. This
+  means the MVP core hypothesis below is not yet validated as written —
+  obstacle density and lane-threat distribution are load-bearing design work
+  for the Driving/Traffic system GDD, not a tuning afterthought.
 - What's the actual low-end Android performance ceiling for this art
   direction? Resolve via an early technical-artist/performance-analyst
   profiling pass during prototyping, not after content is built.
@@ -317,6 +325,15 @@ that celebrates rather than exoticizes the culture.
 **Core hypothesis**: Swiping to dodge traffic/potholes while racing a timer
 to deliver passengers is fun in short, replayable sessions on mobile,
 independent of progression, customization, or content breadth.
+
+> **Prototype check (2026-09-03)**: The swipe-driving-loop concept prototype
+> confirmed the control scheme itself (instant, lag-free lane changes) but
+> did **not** confirm that dodging is fun on its own — the single-obstacle,
+> single-lane spawn pattern tested left no real pressure or decision-making.
+> Treat this hypothesis as **open, not validated**, until the Driving/Traffic
+> system GDD specifies obstacle density and lane-threat distribution
+> deliberately (see `prototypes/swipe-driving-loop-concept/REPORT.md`) rather
+> than inheriting the prototype's placeholder defaults.
 
 **Required for MVP**:
 1. One Mombasa-inspired map with basic traffic and potholes
@@ -385,7 +402,7 @@ should get a full art-director pass during `/art-bible`.)*
 - [x] TD-FEASIBILITY skipped — Lean mode
 - [x] PR-SCOPE skipped — Lean mode
 - [ ] Fill in CLAUDE.md technology stack based on engine choice (`/setup-engine` — Godot 4.6 / GDScript, already specified)
-- [ ] **Prototype core idea** (`/prototype swipe-driving-loop`) — validate the core swipe/dodge/boost loop is fun before writing any GDDs
+- [x] **Prototype core idea** (`/prototype swipe-driving-loop`) — PROCEED verdict, but see the MVP Definition note above: obstacle density/lane-threat distribution still needs deliberate design, not placeholder defaults
 - [ ] If prototype PROCEEDS: create visual identity spec (`/art-bible`), then decompose concept into systems (`/map-systems`)
 - [ ] Design each system (`/design-system [system-name]`) — use prototype learnings in Tuning Knobs and Formulas sections
 - [ ] Build vertical slice in Pre-Production (`/vertical-slice`) — validate full game loop before committing to Production
