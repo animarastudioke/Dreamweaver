@@ -1,6 +1,6 @@
 # Godot — Deprecated APIs
 
-Last verified: 2026-02-12
+Last verified: 2026-09-03
 
 If an agent suggests any API in the "Deprecated" column, it MUST be replaced
 with the "Use Instead" column.
@@ -30,6 +30,8 @@ with the "Use Instead" column.
 | `Skeleton3D` signal `bone_pose_updated` | `skeleton_updated` | 4.3 | Renamed |
 | `AnimationPlayer.method_call_mode` | `AnimationMixer.callback_mode_method` | 4.3 | Moved to base class |
 | `AnimationPlayer.playback_active` | `AnimationMixer.active` | 4.3 | Moved to base class |
+| Hardcoded mouse/keyboard `device` ID `0` | `InputEvent.DEVICE_ID_MOUSE` / `InputEvent.DEVICE_ID_KEYBOARD` | 4.7 | Device ID numbering scheme changed |
+| `AudioEffectSpectrumAnalyzer.tap_back_pos` | (removed, no direct replacement) | 4.7 | Check spectrum analyzer usage before upgrading audio visualizer code |
 
 ## Patterns (Not Just APIs)
 

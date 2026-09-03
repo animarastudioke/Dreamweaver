@@ -1,8 +1,32 @@
 # Godot — Breaking Changes
 
-Last verified: 2026-02-12
+Last verified: 2026-09-03
 
 Changes between Godot versions, focused on post-LLM-cutoff changes (4.4+).
+
+## 4.6 → 4.7 (2026 — POST-CUTOFF, HIGH RISK)
+
+| Subsystem | Change | Details |
+|-----------|--------|---------|
+| Input | Mouse/keyboard device IDs renamed | Changed from hardcoded `0` to `InputEvent.DEVICE_ID_MOUSE` / `InputEvent.DEVICE_ID_KEYBOARD`. Breaks code that hardcoded device ID `0`. |
+| Physics (Jolt) | `WorldBoundaryShape3D` plane distance sign reversed | Existing boundary shapes may need their distance value negated. |
+| Physics (Jolt) | `SoftBody3D` default mass behavior changed | Default mass changed from `0` (1 kg per point) to `1` kg total; linear stiffness application changed. |
+| Physics (Jolt) | `Area3D` now reports overlaps with `SoftBody3D` | Previously did not detect soft body overlap. |
+| Audio | `AudioStreamPlayer.area_mask` default changed | Was `1`, now `0`. |
+| Audio | `AudioEffectSpectrumAnalyzer.tap_back_pos` removed | No direct replacement documented. |
+| Animation | `LookAtModifier3D.relative` default changed | Was `true`, now `false`. |
+| Animation | `Animation.length` property metadata type changed | `float` → `double`. |
+| Rendering | `LinearToSRGB` shader no longer clamps to [0.0, 1.0] | Mobile/Forward+ renderers only. May change visual output at HDR values. |
+| Rendering | `ImageTexture`/`PortableCompressedTexture2D.get_format()` moved to `Texture2D` base | API location change, not removal. |
+| GUI | `RichTextLabel` image width/height params changed `int`→`float`; `width_in_percent`/`height_in_percent` renamed to `width_unit`/`height_unit` (type `RichTextLabel.ImageUnit`) | Update any code calling `add_image()`/`update_image()`. |
+| GUI | `Control.accessibility_live` property type changed | `DisplayServer.AccessibilityLiveMode` → `AccessibilityServer.AccessibilityLiveMode`. |
+| Core | `Object.is_class()` parameter type changed | `String` → `StringName`. |
+| Core | `OptimizedTranslation.generate()` return type changed | `void` → `bool`. |
+| GDScript | Packed-array element assignment no longer calls the setter for the whole array property | Behavior change for code relying on the old setter-call side effect. |
+| GDScript | Typed-return method overrides now require an explicit return type | Previously inherited implicitly. |
+| Editor | New-project stretch mode/aspect defaults changed | Was `disabled`/`keep`, now `canvas_items`/`expand`. Only affects newly created projects. |
+| Editor | `EditorSceneFormatImporter` import-flag constants moved into `ImportFlags` enum | e.g. `IMPORT_ANIMATION`, `IMPORT_SCENE`, etc. |
+| XR | `OpenXRExtensionWrapper._on_register_metadata()` gained required `interaction_profile_metadata` parameter | Custom OpenXR extension wrappers must update their override signature. |
 
 ## 4.5 → 4.6 (Jan 2026 — POST-CUTOFF, HIGH RISK)
 

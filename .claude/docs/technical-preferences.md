@@ -5,10 +5,10 @@
 
 ## Engine & Language
 
-- **Engine**: Godot 4.6
+- **Engine**: Godot 4.7.2
 - **Language**: GDScript
 - **Rendering**: Mobile renderer (Forward Mobile) — required for Android target; avoid Forward+-only features
-- **Physics**: Jolt (default 3D physics engine in Godot 4.6)
+- **Physics**: Jolt (default 3D physics engine since Godot 4.6)
 
 ## Input & Platform
 
