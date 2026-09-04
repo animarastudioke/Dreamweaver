@@ -37,7 +37,7 @@
 #   Each entry: name, status, source, referenced_by[], attributes{}, added, revised
 
 version: 1
-last_updated: ""
+last_updated: "2026-09-03"
 
 # ─── ENTITIES ────────────────────────────────────────────────────────────────
 # Named game-world objects: enemies, NPCs, characters, factions, bosses.
@@ -139,7 +139,76 @@ formulas: []
 #
 # Required fields: name, status, source, referenced_by, value, unit, added
 
-constants: []
+constants:
+  - name: BASE_SPEED
+    status: active
+    source: design/gdd/driving-vehicle-control.md
+    referenced_by:
+      - design/gdd/driving-vehicle-control.md
+    value: 14.0
+    unit: m/s
+    added: 2026-09-03
+    revised: ""
+
+  - name: BOOST_MULTIPLIER
+    status: active
+    source: design/gdd/driving-vehicle-control.md
+    referenced_by:
+      - design/gdd/driving-vehicle-control.md
+    value: 1.8
+    unit: multiplier
+    added: 2026-09-03
+    revised: ""
+
+  - name: BRAKE_MULTIPLIER
+    status: active
+    source: design/gdd/driving-vehicle-control.md
+    referenced_by:
+      - design/gdd/driving-vehicle-control.md
+    value: 0.45
+    unit: multiplier
+    added: 2026-09-03
+    revised: ""
+
+  - name: BOOST_DURATION
+    status: active
+    source: design/gdd/driving-vehicle-control.md
+    referenced_by:
+      - design/gdd/driving-vehicle-control.md
+    value: 1.0
+    unit: seconds
+    added: 2026-09-03
+    revised: ""
+
+  - name: BRAKE_DURATION
+    status: active
+    source: design/gdd/driving-vehicle-control.md
+    referenced_by:
+      - design/gdd/driving-vehicle-control.md
+    value: 0.4
+    unit: seconds
+    added: 2026-09-03
+    revised: ""
+
+  - name: LANE_LERP_RATE
+    status: active
+    source: design/gdd/driving-vehicle-control.md
+    referenced_by:
+      - design/gdd/driving-vehicle-control.md
+    value: 12.0
+    unit: 1/s (exponential smoothing rate)
+    added: 2026-09-03
+    revised: ""
+
+  - name: LANE_WIDTH
+    status: active
+    source: design/gdd/driving-vehicle-control.md
+    referenced_by:
+      - design/gdd/driving-vehicle-control.md
+    value: 3.0
+    unit: meters
+    added: 2026-09-03
+    revised: ""
 
 # Example:
 #

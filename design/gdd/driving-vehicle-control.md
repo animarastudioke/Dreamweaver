@@ -140,11 +140,237 @@ independently of this table and is active in every state except Locked.
 
 ## Formulas
 
-[To be designed]
+> All formulas below use `delta_time` = Godot's physics-tick delta
+> (`_physics_process(delta)`), fixed at `physics_ticks_per_second` (default
+> 60Hz) regardless of render framerate — this is what makes the tick-based
+> smoothing formulas below frame-rate independent.
+
+### 1. Lane Target Position
+
+The `lane_target_x` formula is defined as:
+
+`lane_target_x = (target_lane - (LANE_COUNT - 1) / 2) × LANE_WIDTH`
+
+**Variables:**
+| Variable | Symbol | Type | Range | Description |
+|---|---|---|---|---|
+| Target lane index | `target_lane` | int | 0–2 | Lane the vehicle is moving toward (clamped by Core Rule 1) |
+| Lane count | `LANE_COUNT` | int (structural constant) | fixed at 3 | Not a tuning knob — changing it requires re-authoring road art/obstacle spawn logic |
+| Lane width | `LANE_WIDTH` | float (constant) | validated: 3.0m | Distance between adjacent lane centers |
+| Result | `lane_target_x` | float | discrete set | World-space X coordinate of the target lane's center |
+
+**Output Range:** Discrete set `{-3.0, 0.0, 3.0}` meters for the approved
+3-lane / 3.0m configuration — never continuous, never out-of-set, since
+`target_lane` is hard-clamped upstream (Core Rule 1/3).
+
+**Example:** `target_lane = 2` → `(2 - 1) × 3.0 = 3.0m` (rightmost lane).
+
+### 2. Lateral Position Interpolation (the core feel formula)
+
+The `lateral_position_interpolation` formula is defined as:
+
+`vehicle_x' = lerp(vehicle_x, lane_target_x, 1 - e^(-LANE_LERP_RATE × delta_time))`
+
+**Variables:**
+| Variable | Symbol | Type | Range | Description |
+|---|---|---|---|---|
+| Current vehicle X | `vehicle_x` | float | -3.0–3.0m | Vehicle's world X position this tick (state, feeds from prior tick's output) |
+| Target lane X | `lane_target_x` | float | {-3.0, 0.0, 3.0}m | From Formula 1 |
+| Lane response rate | `LANE_LERP_RATE` | float (constant) | validated: 12.0 (1/s) | Controls how fast the vehicle catches up to the target lane |
+| Physics delta | `delta_time` | float | ~0.0167s at 60Hz | Fixed physics tick duration |
+| Result | `vehicle_x'` | float | -3.0–3.0m | New `vehicle_x` for this tick |
+
+**Output Range:** Always within the closed interval between the previous
+`vehicle_x` and `lane_target_x` — the smoothing factor `1 - e^(-k)` is
+always in `[0, 1)` for `k ≥ 0`, so this formula can never overshoot or
+oscillate, and `vehicle_x` stays within `[-3.0, 3.0]` for the life of the
+run.
+
+**Example:** Player is centered (`vehicle_x = 0.0`, lane 1) and swipes right
+(`target_lane = 2`, `lane_target_x = 3.0`). At `LANE_LERP_RATE = 12.0`, one
+tick at 60fps (`delta_time ≈ 0.01667s`):
+`factor = 1 - e^(-12 × 0.01667) = 1 - e^(-0.2) = 0.1813`
+`new_vehicle_x = 0.0 + (3.0 - 0.0) × 0.1813 = 0.544m`
+
+The time constant `τ = 1/LANE_LERP_RATE = 0.083s (83ms)` is a useful design
+metric: the vehicle reaches ~63% of the way to target in 83ms, ~90% by
+192ms, ~95% by 250ms — all under typical "perceptible input lag" thresholds
+(~100ms), consistent with the prototype's validated "no perceptible delay"
+finding.
+
+**Approved deviation from the prototype:** the prototype used a linear lerp
+with a clamp (`lerp(x, target, clamp(delta * RATE, 0, 1))`), which hard-snaps
+to the target in a single frame if a physics tick ever exceeds ~83ms — a
+real risk given this project's 30fps-floor low-end Android target. This
+exponential form degrades gracefully instead of popping. `LANE_LERP_RATE =
+12.0` is unchanged; only the smoothing math shape changed. At normal 60fps
+the two forms differ by ~9% per tick (0.1813 vs. the linear form's 0.2),
+well within playtest noise — the validated "instant, no lag" feel carries
+over.
+
+### 3. Boost/Brake State Timer
+
+The `state_timer_update` formula is defined as:
+
+`up_swipe → boost_timer = BOOST_DURATION, brake_timer = 0`
+`down_swipe → brake_timer = BRAKE_DURATION, boost_timer = 0`
+`otherwise → boost_timer = max(0, boost_timer - delta_time), brake_timer = max(0, brake_timer - delta_time)`
+
+**Variables:**
+| Variable | Symbol | Type | Range | Description |
+|---|---|---|---|---|
+| Up-swipe detected this tick | `up_swipe` | bool | true/false | From swipe classification (input handling, not covered here) |
+| Down-swipe detected this tick | `down_swipe` | bool | true/false | Same |
+| Boost duration | `BOOST_DURATION` | float (constant) | validated: 1.0s | Full boost window on trigger |
+| Brake duration | `BRAKE_DURATION` | float (constant) | validated: 0.4s | Full brake window on trigger |
+| Result | `boost_timer`, `brake_timer` | float | 0–duration, mutually exclusive | Countdown state per Core Rules 5–7 |
+
+**Output Range:** `boost_timer ∈ [0.0, 1.0]`, `brake_timer ∈ [0.0, 0.4]`; by
+construction (explicit opposing-timer zeroing), the two can never both be
+nonzero simultaneously.
+
+**Example:** Player is braking (`brake_timer = 0.25` remaining) and swipes
+up. This tick: `up_swipe = true` → `boost_timer = 1.0`, `brake_timer = 0`
+(forced). Braking is cut short exactly as Core Rule 7 requires.
+
+**Approved bug fix vs. the prototype:** the prototype only *sets* the
+newly-triggered timer and never *clears* the opposing one — speed selection
+then uses `if boost_timer>0 elif brake_timer>0`, which is priority order,
+not recency. If mid-boost and the player swipes down, the prototype's
+`brake_timer` is set correctly but boost still wins every tick until its own
+timer naturally expires — the down-swipe is silently ignored. This violates
+Core Rule 7 ("most recent swipe wins"). The explicit zeroing above fixes it
+and makes Formula 4's priority check correct-by-construction rather than
+order-dependent.
+
+### 4. Forward Speed
+
+The `current_speed` formula is defined as:
+
+`current_speed = BASE_SPEED × active_multiplier`, where `active_multiplier = BOOST_MULTIPLIER if boost_timer > 0, else BRAKE_MULTIPLIER if brake_timer > 0, else 1.0`
+
+**Variables:**
+| Variable | Symbol | Type | Range | Description |
+|---|---|---|---|---|
+| Base speed | `BASE_SPEED` | float (constant) | validated: 14.0 m/s | Cruising forward speed |
+| Boost multiplier | `BOOST_MULTIPLIER` | float (constant) | validated: 1.8 | Applied while `boost_timer > 0` |
+| Brake multiplier | `BRAKE_MULTIPLIER` | float (constant) | validated: 0.45 | Applied while `brake_timer > 0` |
+| Boost/brake timers | `boost_timer`, `brake_timer` | float | ≥0 | From Formula 3 |
+| Result | `current_speed` | float | discrete set | Current forward speed, m/s |
+
+**Output Range:** Discrete 3-value set `{6.3, 14.0, 25.2}` m/s given current
+constants — no blending between states, matching the Core Rules'
+intentionally instant (not eased) speed transitions.
+
+**Example:** Cruising: `14.0 × 1.0 = 14.0 m/s` (~50.4 km/h). Boosting:
+`14.0 × 1.8 = 25.2 m/s` (~90.7 km/h). Braking: `14.0 × 0.45 = 6.3 m/s`
+(~22.7 km/h).
+
+### 5. Camera Reactive FOV
+
+The `camera_fov` formula is defined as:
+
+`target_fov = BASE_FOV + FOV_GAIN × (active_multiplier - 1.0)`
+`camera_fov' = lerp(camera_fov, target_fov, 1 - e^(-CAMERA_FOV_LERP_RATE × delta_time))`
+
+**Variables:**
+| Variable | Symbol | Type | Range | Description |
+|---|---|---|---|---|
+| Active multiplier | `active_multiplier` | float | {0.45, 1.0, 1.8} | Reused from Formula 4 — one variable driving both speed and camera |
+| Base FOV | `BASE_FOV` | float (constant, **unvalidated — proposed starting value**) | 75.0° | Godot `Camera3D`'s own engine default, used as a neutral anchor |
+| FOV gain | `FOV_GAIN` | float (constant, **unvalidated — proposed starting value**) | 8.0°/multiplier-unit | Degrees of push/pull per unit of `active_multiplier` above/below 1.0 |
+| Camera lerp rate | `CAMERA_FOV_LERP_RATE` | float (constant, **unvalidated — proposed starting value**) | 6.0 (1/s) | Deliberately half of `LANE_LERP_RATE` — camera should read as reactive/cinematic, not as snappy as lane response |
+| Result | `camera_fov'` | float | 70.6°–81.4° | Live camera FOV |
+
+**Output Range:** `[70.6°, 81.4°]` given current constants — never
+overshoots per-tick, same reasoning as Formula 2.
+
+**Example:** Boost triggers, `active_multiplier → 1.8`.
+`target_fov = 75.0 + 8.0 × 0.8 = 81.4°`. One tick at 60fps:
+`factor = 1 - e^(-6×0.01667) = 1 - e^(-0.1) = 0.0952`;
+`camera_fov = 75.0 + 6.4×0.0952 = 75.61°`. Time constant `τ = 1/6 ≈ 167ms` —
+about twice as slow to converge as the lane change, an intentional
+differentiation between "controls feel instant" and "camera feels
+reactive."
+
+> **Unvalidated constants**: `BASE_FOV`, `FOV_GAIN`, and
+> `CAMERA_FOV_LERP_RATE` do not exist in the prototype (its camera had no
+> FOV reactivity at all) and have zero playtest backing — they are proposed
+> starting values, not measured ones. Re-verify against a real camera-feel
+> pass before treating them as final; see Tuning Knobs.
+
+### 6. Speed-Line Intensity
+
+The `speedline_intensity` formula is defined as:
+
+`speedline_intensity = clamp((active_multiplier - 1.0) / (BOOST_MULTIPLIER - 1.0), 0.0, 1.0)`
+
+**Variables:**
+| Variable | Symbol | Type | Range | Description |
+|---|---|---|---|---|
+| Active multiplier | `active_multiplier` | float | {0.45, 1.0, 1.8} | From Formula 4 |
+| Boost multiplier | `BOOST_MULTIPLIER` | float (constant) | validated: 1.8 | Normalization anchor |
+| Result | `speedline_intensity` | float | 0.0–1.0 | Shader/particle intensity parameter |
+
+**Output Range:** Clamped 0.0–1.0. Cruising and Braking both map to `0.0`
+(no speed lines below 1x); Boosting maps to `1.0`.
+
+**Example:** Boosting: `(1.8-1.0)/(1.8-1.0) = 1.0` (full intensity).
+Braking: `(0.45-1.0)` is negative → clamped to `0.0`.
+
+**Approved design decision:** the mapping is deliberately asymmetric —
+speed lines only appear on boost, never on brake — because forward-motion
+streak VFX reads oddly during a slow-down. No smoothing is applied;
+intensity pops instantly with `active_multiplier`, reinforcing boost's
+"deliberate escalation" feel (per Player Fantasy) rather than easing in,
+unlike the camera FOV.
 
 ## Edge Cases
 
-[To be designed]
+- **If a swipe gesture's start-to-end distance is below `SWIPE_MIN_DISTANCE`
+  (40.0px)**: no action is taken — not classified as a lane-change, boost,
+  or brake. Prevents accidental taps from triggering movement.
+- **If a swipe is diagonal (both |dx| and |dy| exceed the threshold)**:
+  classify by dominant axis — whichever of |dx| or |dy| is larger wins; the
+  other axis is ignored for that gesture. Prevents an imprecise swipe from
+  double-triggering (e.g., both a lane change and a boost).
+- **If both an up-swipe and down-swipe are detected in the same physics
+  tick** (only possible via simultaneous on-screen button presses, since a
+  single touch gesture can't be both): down-swipe (brake) takes priority,
+  since braking is the safer/more conservative action and Pillar 2 favors
+  outcomes that never feel like the game punished the player for an
+  ambiguous input.
+- **If a swipe or button press occurs while the vehicle is in the Locked
+  state** (mid-collision-reaction): the input is dropped entirely, not
+  queued — the player must re-input after recovery. Queueing would let a
+  pre-collision panic-swipe fire unexpectedly after recovery, which would
+  read as the game acting on stale intent.
+- **If the vehicle enters Locked state while `boost_timer` or `brake_timer`
+  is still counting down**: both timers are force-reset to `0` on Locked
+  entry. Recovery always exits into a clean Cruising state — prevents a
+  "surprise boost" immediately after a collision, which would violate
+  Pillar 2.
+- **If an on-screen button is held down rather than tapped**: treated as
+  edge-triggered, identical to a swipe gesture — one press = one
+  lane-change/boost/brake trigger, not a continuous repeat. This keeps the
+  two input paths (swipe vs. button) functionally equivalent per Core Rule
+  8.
+- **If a physics tick's `delta_time` spikes far above normal** (app resumed
+  from background, engine hitch): Formula 2's exponential form degrades
+  gracefully — a huge `delta_time` drives the smoothing factor toward
+  `1.0`, snapping to the target lane rather than breaking (unlike the
+  prototype's linear-clamp form, which had the same snap behavior but only
+  above a hard threshold). Still, the engine implementation should clamp
+  raw `delta_time` at the physics-process level (standard Godot practice)
+  so unrelated per-frame accumulators (distance traveled, timers) don't
+  spike from the same hitch.
+- **At run start**: `current_lane` and `target_lane` both default to `1`
+  (center lane), `vehicle_x = 0.0` — no interpolation needed on the first
+  frame.
+- **If `target_lane` changes again before the previous lane-change
+  interpolation finishes**: no special handling needed — Formula 2
+  continuously re-targets every tick, so the vehicle smoothly redirects
+  toward the new target without any pop or discontinuity.
 
 ## Dependencies
 
