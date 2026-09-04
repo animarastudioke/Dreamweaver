@@ -198,6 +198,13 @@ metric: the vehicle reaches ~63% of the way to target in 83ms, ~90% by
 (~100ms), consistent with the prototype's validated "no perceptible delay"
 finding.
 
+**Gap fix — arrival tolerance**: because this is exponential smoothing,
+`vehicle_x` asymptotically approaches `lane_target_x` and mathematically
+never becomes exactly equal to it. Any downstream system that needs to know
+"the vehicle has arrived in lane N" (not just "is moving toward lane N")
+must check `abs(vehicle_x - lane_target_x) < LANE_ARRIVAL_EPSILON` rather
+than exact equality. See `LANE_ARRIVAL_EPSILON` in Tuning Knobs.
+
 **Approved deviation from the prototype:** the prototype used a linear lerp
 with a clamp (`lerp(x, target, clamp(delta * RATE, 0, 1))`), which hard-snaps
 to the target in a single frame if a physics tick ever exceeds ~83ms — a
@@ -265,6 +272,17 @@ intentionally instant (not eased) speed transitions.
 **Example:** Cruising: `14.0 × 1.0 = 14.0 m/s` (~50.4 km/h). Boosting:
 `14.0 × 1.8 = 25.2 m/s` (~90.7 km/h). Braking: `14.0 × 0.45 = 6.3 m/s`
 (~22.7 km/h).
+
+**Gap fix — Locked state**: this formula is defined only for
+Cruising/Boosting/Braking. The instant the vehicle enters Locked, this
+system stops evaluating Formula 4 entirely — `current_speed` for the
+duration of Locked is owned and driven by Collision & Damage System (per
+the States and Transitions table), not computed here. This system resumes
+evaluating Formula 4 (from the Cruising branch) only once Collision &
+Damage System signals recovery. Flagging explicitly because the original
+draft left this silent, which read as though `active_multiplier` had an
+undefined value during Locked rather than "not this system's formula to
+evaluate."
 
 ### 5. Camera Reactive FOV
 
@@ -334,6 +352,11 @@ unlike the camera FOV.
   classify by dominant axis — whichever of |dx| or |dy| is larger wins; the
   other axis is ignored for that gesture. Prevents an imprecise swipe from
   double-triggering (e.g., both a lane change and a boost).
+- **If a diagonal swipe is an exact tie (`|dx| == |dy|`, a true 45°
+  gesture)**: horizontal wins — classify as a lane change, not boost/brake.
+  Lane changes are the higher-frequency, lower-consequence action; defaulting
+  an ambiguous input to it is less disruptive than an unintended boost or
+  brake, consistent with Pillar 2's "never a surprise" fairness test.
 - **If both an up-swipe and down-swipe are detected in the same physics
   tick** (only possible via simultaneous on-screen button presses, since a
   single touch gesture can't be both): down-swipe (brake) takes priority,
@@ -411,6 +434,7 @@ this table rather than silently diverging.
 | `BASE_FOV` *(unvalidated)* | 75.0° | 65–85° | Baseline camera framing | Too narrow: claustrophobic. Too wide: fisheye distortion, hard to judge lane distances |
 | `FOV_GAIN` *(unvalidated)* | 8.0° | 4–15° | Boost/brake visual intensity | Too low: boost doesn't read as different. Too high: disorienting during rapid boost↔brake switching |
 | `CAMERA_FOV_LERP_RATE` *(unvalidated)* | 6.0 (1/s) | 3–10 | Camera reactivity speed | Should stay below `LANE_LERP_RATE` — this preserves the intentional Player Fantasy distinction ("controls feel instant, camera feels reactive") |
+| `LANE_ARRIVAL_EPSILON` | 0.02m | 0.005–0.05m | Threshold at which `abs(vehicle_x - lane_target_x) < ε` counts as "arrived in lane" for downstream systems (see Formula 2 gap fix) | Too tight: downstream systems (Passenger & Delivery Loop's zone detection, etc.) may never register "arrived" due to floating-point noise. Too loose: "arrived" fires while still visibly mid-lerp, looks wrong to any system gating visuals on it |
 
 **Interaction to watch**: `LANE_LERP_RATE` and `LANE_WIDTH` are coupled —
 the *effective* real-world lane-change speed (meters/second) is roughly
@@ -573,8 +597,127 @@ their visual design is HUD & UI's to own.
 
 ## Acceptance Criteria
 
-[To be designed]
+### Lane Movement & Clamping (Core Rules 1–3)
+
+- **GIVEN** vehicle in lane 1, **WHEN** player swipes right (or presses the right button), **THEN** `target_lane` becomes 2 and `lane_target_x` becomes 3.0m (Formula 1).
+- **GIVEN** vehicle in lane 0, **WHEN** player swipes left, **THEN** `target_lane` remains 0 and `vehicle_x` does not move (no perceptible x-position change over the following 1s).
+- **GIVEN** vehicle in lane 2, **WHEN** player swipes right repeatedly (3+ times), **THEN** `target_lane` stays clamped at 2 for every attempt — never exceeds 2, never wraps.
+- **GIVEN** `vehicle_x = 0.0` and a swipe-right just triggered (`lane_target_x = 3.0`), **WHEN** one physics tick elapses at `delta_time ≈ 0.01667s` (60Hz), **THEN** `vehicle_x` equals `0.544 ±0.01m` (per Formula 2's worked example — verify via debug overlay or log at a pinned `dt`).
+
+### Forward Speed (Core Rule 4 / Formula 4)
+
+- **GIVEN** state = Cruising, **WHEN** `current_speed` is sampled, **THEN** it equals `14.0 m/s ±0.01`.
+- **GIVEN** state = Boosting, **WHEN** `current_speed` is sampled, **THEN** it equals `25.2 m/s ±0.01`.
+- **GIVEN** state = Braking, **WHEN** `current_speed` is sampled, **THEN** it equals `6.3 m/s ±0.01`.
+
+### Boost (Core Rule 5)
+
+- **GIVEN** state = Cruising, **WHEN** player up-swipes, **THEN** state becomes Boosting, `boost_timer = 1.0s`, and `current_speed` becomes `25.2 m/s` within the same tick.
+- **GIVEN** state = Boosting with `boost_timer = 0.4s` remaining, **WHEN** player up-swipes again, **THEN** `boost_timer` resets to `1.0s` (not additive to `1.4s`) and state remains Boosting.
+- **GIVEN** state = Boosting, **WHEN** `boost_timer` reaches 0 with no further input, **THEN** state transitions to Cruising and `current_speed` returns to `14.0 m/s`.
+
+### Brake (Core Rule 6)
+
+- **GIVEN** state = Cruising, **WHEN** player down-swipes, **THEN** state becomes Braking, `brake_timer = 0.4s`, `current_speed = 6.3 m/s`.
+- **GIVEN** state = Braking with `brake_timer = 0.1s` remaining, **WHEN** player down-swipes again, **THEN** `brake_timer` resets to `0.4s` (not additive) and state remains Braking.
+- **GIVEN** state = Braking, **WHEN** `brake_timer` reaches 0 with no further input, **THEN** state transitions to Cruising and `current_speed` returns to `14.0 m/s`.
+
+### Mutual Exclusion — Bug Regression (Core Rule 7 / Formula 3's approved fix)
+
+- **[BUG REGRESSION]** **GIVEN** state = Boosting with `boost_timer = 0.7s` remaining, **WHEN** player down-swipes, **THEN** `boost_timer` is forced to `0` in the same tick, state transitions immediately to Braking with `brake_timer = 0.4s`, and `current_speed` changes directly from `25.2` to `6.3 m/s` with no intermediate cruise-speed frame.
+- **[BUG REGRESSION]** **GIVEN** state = Braking with `brake_timer = 0.2s` remaining, **WHEN** player up-swipes, **THEN** `brake_timer` is forced to `0` in the same tick, state transitions immediately to Boosting with `boost_timer = 1.0s`, and `current_speed` changes directly from `6.3` to `25.2 m/s`.
+- **[BUG REGRESSION]** **GIVEN** state = Boosting, **WHEN** player down-swipes then immediately up-swipes again before the tick advances further, **THEN** the final state reflects only the most recent input (Boosting, `boost_timer = 1.0s`) — confirms priority is recency-based, not "boost always wins" (the original prototype defect).
+
+### State Machine — Locked
+
+- **GIVEN** any of Cruising/Boosting/Braking, **WHEN** the collision system signals Locked entry, **THEN** state becomes Locked and both `boost_timer` and `brake_timer` are set to `0` within the same tick.
+- **GIVEN** state = Locked, **WHEN** player swipes (any direction) or presses any on-screen button, **THEN** `target_lane`, `vehicle_x` trajectory, `boost_timer`, and `brake_timer` all remain unchanged — the input produces no effect at all, immediate or delayed.
+- **GIVEN** state = Locked with input attempted during lock, **WHEN** the external recovery signal fires with no further input after recovery, **THEN** state becomes Cruising and the previously-dropped input does **not** retroactively fire (confirms "dropped, not queued").
+- **GIVEN** state = Locked, **WHEN** the external recovery signal fires, **THEN** state transitions to Cruising and `current_speed` becomes `14.0 m/s`.
+
+### Input Parity — Swipe vs. Button (Core Rule 8)
+
+- **GIVEN** vehicle in lane 1, **WHEN** tested once via a valid swipe-right (≥40px) and once via a right on-screen button tap (separate isolated runs), **THEN** both produce identical `target_lane` (2) and identical lerp trajectory — no measurable difference in outcome or per-frame timing.
+- **GIVEN** a swipe with start-to-end distance of 39px, **WHEN** released, **THEN** no lane change, boost, or brake fires (treated as a no-op, not a partial/weak trigger).
+- **GIVEN** a swipe with start-to-end distance of 40px or more, **WHEN** released, **THEN** the corresponding action fires exactly once.
+- **GIVEN** an on-screen button held down continuously for 2 seconds, **WHEN** sampled every frame during the hold, **THEN** the associated action fires exactly once on initial press and does not re-fire while held (edge-triggered, not repeat).
+
+### Diagonal Swipe Classification
+
+- **GIVEN** a swipe where `|dx| > |dy|` and both exceed 40px, **WHEN** released, **THEN** it is classified as a lane-change (left/right) — no boost/brake fires.
+- **GIVEN** a swipe where `|dy| > |dx|` and both exceed 40px, **WHEN** released, **THEN** it is classified as boost (up) or brake (down) — no lane change fires.
+- **GIVEN** a swipe where `|dx| == |dy|` exactly (a true 45° gesture) and both exceed 40px, **WHEN** released, **THEN** it is classified as a lane change (horizontal wins ties, per Edge Cases).
+
+### Simultaneous Input & Delta-Time Spike
+
+- **GIVEN** state = Cruising, **WHEN** an up-swipe and down-swipe are both registered within the same physics tick (e.g., simultaneous button presses), **THEN** brake wins: state becomes Braking, `brake_timer = 0.4s`, `boost_timer` stays/forced to `0`.
+- **GIVEN** `vehicle_x` mid-lerp toward a target lane, **WHEN** a physics tick with an abnormal `delta_time` spike occurs (e.g., simulated 500ms hitch), **THEN** `vehicle_x` moves toward `lane_target_x` without overshoot or oscillation and without visibly teleporting past the target lane's position (verify against Formula 2's degrade-gracefully behavior, not the old linear-clamp hard-snap).
+
+### Run Start & Re-targeting
+
+- **GIVEN** a fresh run start, **WHEN** the scene loads before any input, **THEN** `current_lane = 1`, `target_lane = 1`, `vehicle_x = 0.0`.
+- **GIVEN** `vehicle_x` mid-lerp toward lane 2, **WHEN** player swipes left again before arrival, **THEN** `lane_target_x` updates immediately to lane 1's position and the lerp continues from the vehicle's current in-flight position — no reset to the lane-1 start position, no pop.
+- **GIVEN** `vehicle_x` approaching `lane_target_x`, **WHEN** `abs(vehicle_x - lane_target_x) < LANE_ARRIVAL_EPSILON` (0.02m), **THEN** any downstream system checking lane arrival registers "arrived" — confirms the epsilon-based check works as specified in the Formula 2 gap fix.
+
+### Camera & VFX (Formulas 5–6) — directional checks only, values unvalidated
+
+- **GIVEN** state transitions to Boosting, **WHEN** FOV is observed over the following ~250ms, **THEN** it smoothly increases from `75.0°` toward `81.4°` with no snap or overshoot (directional/smoothness check — the exact `81.4°` endpoint is explicitly marked unvalidated in Formula 5 and should not be treated as a hard pass/fail number).
+- **GIVEN** state = Boosting, **WHEN** speed-line VFX is checked, **THEN** it is visible; **GIVEN** state = Cruising or Braking, **WHEN** checked, **THEN** speed lines are not visible (Formula 6's asymmetric boost-only behavior).
+
+### Performance Budget (target platform: mobile Android, Forward Mobile)
+
+- **GIVEN** the driving loop running on a representative low-end Android reference device, **WHEN** measured via Godot's Debugger > Monitors over a 60-second session including at least 10 lane changes, 5 boosts, and 5 brakes, **THEN** average FPS is ≥30 with no single stretch below 30fps lasting longer than 2 seconds.
+- **GIVEN** the same profiling session, **WHEN** draw calls are sampled via Monitors > Rendering, **THEN** the driving scene (vehicle + camera + VFX from this system) stays under 150 draw calls per frame.
+- **GIVEN** the same profiling session, **WHEN** memory is sampled via Monitors > Memory at t=10s and again at t=60s, **THEN** total working set stays under ~512MB and shows no sustained upward trend indicating a leak.
+
+**Story-type classification for QA plan purposes**: this system is
+primarily **Logic** (lane clamping, speed formulas, timer/mutual-exclusion
+state machine) — those criteria require automated unit tests in
+`tests/unit/driving/` per the BLOCKING gate. The Locked-state interaction
+with Collision & Damage System is **Integration** once that system exists.
+Camera FOV/speed-lines and UI button feedback are **Visual/Feel** and
+**UI** respectively — advisory evidence (screenshot + sign-off, manual
+walkthrough) is sufficient for those, per the story-type table in
+`.claude/docs/coding-standards.md`.
+
+> **Note on the 5th flagged gap (system-specific performance budget)**: the
+> <150 draw-call / ~512MB figures above are whole-build budgets from
+> `technical-preferences.md`, not a driving-system-specific sub-budget. This
+> GDD asks QA to profile the driving scene in isolation; once Traffic &
+> Obstacle System is designed and shares a frame with this system, a proper
+> per-system budget allocation should replace this whole-build proxy. Not
+> blocking for this GDD — flagged forward.
 
 ## Open Questions
 
-[To be designed]
+1. **Are `BASE_FOV` (75.0°), `FOV_GAIN` (8.0°), and `CAMERA_FOV_LERP_RATE`
+   (6.0) actually the right camera-feel values?** These are proposed
+   starting points with zero playtest backing (Formula 5) — the prototype
+   had no FOV reactivity at all. **Owner**: game-designer / godot-specialist.
+   **Target**: resolve during this system's first implementation pass, via a
+   dedicated camera-feel check before treating these as final.
+
+2. **Does the whole-build performance budget (<150 draw calls, ~512MB)
+   need a driving-system-specific sub-allocation?** Currently this GDD's
+   Acceptance Criteria profile the driving scene against project-wide
+   figures from `technical-preferences.md`, not a number scoped to this
+   system alone. **Owner**: performance-analyst. **Target**: once Traffic &
+   Obstacle System is designed and the two systems share a frame budget.
+
+3. **Is `LANE_ARRIVAL_EPSILON = 0.02m` the right arrival tolerance?**
+   Proposed to close the "exponential lerp never exactly arrives" gap
+   (Formula 2), but untested against real downstream consumers (e.g.,
+   Passenger & Delivery Loop's zone detection). Too tight risks
+   floating-point flicker; too loose risks visibly-early "arrived" signals.
+   **Owner**: game-designer. **Target**: first `dev-story` implementation
+   pass, with a note back to this GDD if the value needs to change.
+
+4. **Does Collision & Damage System's actual recovery-signal design match
+   this GDD's assumptions about Locked state?** This GDD assumes: entry
+   zeroes both boost/brake timers, recovery always exits to Cruising (never
+   back into Boosting/Braking), and dropped input during Locked is never
+   queued. These are reasonable defaults chosen here, in the absence of that
+   system's own GDD — Collision & Damage System's author should explicitly
+   confirm or override them, not silently diverge. **Owner**: whoever
+   authors `design/gdd/collision-damage-system.md`. **Target**: when that
+   GDD's Interactions-with-Other-Systems section is written.
