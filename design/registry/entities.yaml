@@ -210,6 +210,26 @@ constants:
     added: 2026-09-03
     revised: ""
 
+  - name: LANE_COUNT
+    status: active
+    source: design/gdd/driving-vehicle-control.md
+    referenced_by:
+      - design/gdd/driving-vehicle-control.md
+    value: 3
+    unit: lanes (structural, not a tuning knob)
+    added: 2026-09-03
+    revised: ""
+
+  - name: LANE_ARRIVAL_EPSILON
+    status: active
+    source: design/gdd/driving-vehicle-control.md
+    referenced_by:
+      - design/gdd/driving-vehicle-control.md
+    value: 0.02
+    unit: meters
+    added: 2026-09-03
+    revised: ""
+
 # Example:
 #
 # constants:

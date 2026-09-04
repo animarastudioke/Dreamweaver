@@ -29,7 +29,7 @@ gameplay-and-writing system.
 
 | # | System Name | Category | Priority | Status | Design Doc | Depends On |
 |---|-------------|----------|----------|--------|------------|------------|
-| 1 | Driving & Vehicle Control | Core | MVP | Not Started | — | — |
+| 1 | Driving & Vehicle Control | Core | MVP | Designed (pending review) | design/gdd/driving-vehicle-control.md | — |
 | 2 | Procedural Road Assembly | Core | MVP | Not Started | — | — |
 | 3 | Traffic & Obstacle System | Gameplay | MVP | Not Started | — | Driving & Vehicle Control |
 | 4 | Collision & Damage System | Gameplay | MVP | Not Started | — | Driving & Vehicle Control, Traffic & Obstacle System |
@@ -172,10 +172,10 @@ than creating tier-specific duplicate GDDs.
 | Metric | Count |
 |--------|-------|
 | Total systems identified | 19 |
-| Design docs started | 0 |
+| Design docs started | 1 |
 | Design docs reviewed | 0 |
 | Design docs approved | 0 |
-| MVP systems designed | 0/10 |
+| MVP systems designed | 1/10 |
 | Vertical Slice systems designed | 0/5 |
 
 ---
