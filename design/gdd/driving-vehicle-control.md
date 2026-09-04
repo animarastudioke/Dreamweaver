@@ -374,15 +374,171 @@ unlike the camera FOV.
 
 ## Dependencies
 
-[To be designed]
+**Upstream (this system depends on):** None — Foundation layer, zero
+dependencies. This is intentional; it's why Driving & Vehicle Control is
+first in the design order.
+
+**Downstream (systems that depend on this one):**
+
+| System | Dependency Type | What it needs from this system |
+|---|---|---|
+| Traffic & Obstacle System | **Hard** | Per-frame lane index + world-space transform — cannot spawn/evaluate threats without a positioned vehicle |
+| Collision & Damage System | **Hard** | Collider transform + the `lock_movement()`/`unlock_movement()` hook |
+| Passenger & Delivery Loop | **Hard** | Vehicle world position/route progress to detect pickup/drop-off proximity |
+| Rush Meter *(Vertical Slice)* | **Hard** | Raw obstacle-distance data to compute near-misses |
+| Vehicle Progression & Upgrades *(MVP)* | **Hard** | Externally-settable tunable parameters (`BASE_SPEED`, `BOOST_MULTIPLIER`, `LANE_LERP_RATE`, etc.) |
+| HUD & UI *(MVP)* | **Hard** | Current state (Cruising/Boosting/Braking) + speed, to render any driving-related feedback at all |
+| Onboarding/Tutorial Flow *(Vertical Slice)* | **Soft** | Input events (first lane change, first boost) to gate tutorial steps — tutorial could function in a degraded form without this, just less precisely |
+
+**Bidirectionality note**: none of these 7 systems have GDDs yet. Per
+`design-docs.md`'s bidirectionality rule, each one's own GDD must list
+"Driving & Vehicle Control" as an upstream dependency when it's authored —
+flagging this now so `/design-system` for any of them cross-checks against
+this table rather than silently diverging.
 
 ## Tuning Knobs
 
-[To be designed]
+| Knob | Default | Safe Range | Affects | Risk at Extremes |
+|---|---|---|---|---|
+| `BASE_SPEED` | 14.0 m/s | 8.0–20.0 | Overall pace/difficulty | Too low: no urgency, violates Pillar 3 (Risk Feels Good). Too high: unreadable at current `LANE_LERP_RATE`, dodging starts to feel unfair (violates Pillar 2) |
+| `BOOST_MULTIPLIER` | 1.8 | 1.3–2.5 | Boost's risk/reward magnitude | Too low: boost feels pointless. Too high: trivializes route timers, breaks Economy & Scoring balance once that GDD exists |
+| `BRAKE_MULTIPLIER` | 0.45 | 0.2–0.7 | Precision-stop control at pickup zones | Too low (near 0): feels like an awkward full stop. Too high (near 1): brake barely does anything, useless for pickup zones |
+| `BOOST_DURATION` | 1.0s | 0.5–2.0s | Commitment length of a boost | Too short: not worth the swipe. Too long: removes agency — player stuck fast through obstacles they didn't mean to hit |
+| `BRAKE_DURATION` | 0.4s | 0.2–1.0s | Commitment length of a brake | Too short: unusable for an actual pickup-zone stop. Too long: brake becomes a "safe spam" strategy, undermining Pillar 3 |
+| `LANE_LERP_RATE` | 12.0 (1/s) | 8.0–20.0 | **The core feel knob** — lane-change snappiness | Too low: sluggish, violates Pillar 1 (the prototype validated ~12.0 specifically — don't drift far without re-testing). Too high (>25): teleport-like, breaks camera readability |
+| `LANE_WIDTH` | 3.0m | 2.5–4.0m | Obstacle spacing, threading tension | Too narrow: obstacles visually overlap, near-misses feel cheap. Too wide: undermines the "threading a gap" fantasy entirely — see interaction note below |
+| `SWIPE_MIN_DISTANCE` | 40.0px | 20–80px | Accidental-tap rejection | Too low: false positives from taps. Too high: legitimate quick swipes get rejected — directly undermines the validated "no perceptible delay" finding |
+| `BASE_FOV` *(unvalidated)* | 75.0° | 65–85° | Baseline camera framing | Too narrow: claustrophobic. Too wide: fisheye distortion, hard to judge lane distances |
+| `FOV_GAIN` *(unvalidated)* | 8.0° | 4–15° | Boost/brake visual intensity | Too low: boost doesn't read as different. Too high: disorienting during rapid boost↔brake switching |
+| `CAMERA_FOV_LERP_RATE` *(unvalidated)* | 6.0 (1/s) | 3–10 | Camera reactivity speed | Should stay below `LANE_LERP_RATE` — this preserves the intentional Player Fantasy distinction ("controls feel instant, camera feels reactive") |
+
+**Interaction to watch**: `LANE_LERP_RATE` and `LANE_WIDTH` are coupled —
+the *effective* real-world lane-change speed (meters/second) is roughly
+`LANE_LERP_RATE × LANE_WIDTH`-scaled, so widening lanes without
+re-validating the lerp rate changes felt responsiveness even though the
+constant itself didn't move.
 
 ## Visual/Audio Requirements
 
-[To be designed]
+*(Consistent with the "Coastal Arcade Realism" Visual Identity Anchor and
+the approved lane/speed/camera mechanics above. This section covers only
+what Driving & Vehicle Control must produce or expose — full mixing/
+layering ownership belongs to the downstream Audio System GDD, Vertical
+Slice tier.)*
+
+### VFX & Visual Feedback per Event
+
+**Lane change** (`LANE_LERP_RATE=12.0`, ~83ms to 63%) — near-instant and
+constantly repeating, so feedback must be cheap and non-fatiguing, not a
+"moment." A subtle body-roll/bank into the direction of travel (transform-
+or vertex-shader-based) sells weight. **No spawned lane-target
+decal/pulse** — the action is already instant and clear from vehicle motion
+alone; a spawned indicator would add drawcall cost and fatigue for
+something that fires this often.
+
+**Boost trigger** (25.2 m/s, 1.0s) — full-intensity speed-line VFX
+(already asymmetric per Formula 6), implemented as a lightweight
+screen-space streak shader, not per-particle sprites (draw-call budget is
+tight). **Streaks are neutral/desaturated**, not warm-palette-tinted — the
+Visual Identity Anchor's own color philosophy puts gameplay signaling
+before atmosphere, and a state-change cue needs to read via
+brightness/contrast against an already-saturated coastal backdrop. Camera
+FOV push (Formula 5, 75°→81.4°) is the *primary* boost signal — functionally
+free (one camera parameter, zero draw calls) and should carry more
+perceptual weight than any particle effect. Optional low-priority: a
+single-shot forward lean/anticipation pose on boost start (transform-only).
+
+**Brake trigger** (6.3 m/s, 0.4s) — no speed-line VFX by design (asymmetric,
+per Formula 6), so brake needs its own distinct, cheap tell. FOV pull-in
+(mirrored from boost) plus a nose-down pitch/weight-transfer on the vehicle
+body, both transform-level and effectively free. **No aggressive tire-
+screech/skid-burst VFX** — this is a direct, load-bearing enforcement of the
+already-approved Player Fantasy line ("a controlled, confident slow-down,
+never a panic tap"); screech/skid visual language reads as emergency, which
+contradicts it. A brief single-shot dust/tire-touch puff at brake
+initiation is acceptable for tactile confirmation.
+
+**Camera reactivity (general)** — FOV transitions ease in/out on a curve
+matched to each state's duration window (1.0s boost / 0.4s brake per
+Formula 5), never snap. **No screen shake** on boost or brake — shake risks
+impairing lane/road/hazard legibility at speed, conflicting with the
+Anchor's core rule ("every surface reads at a glance from a moving
+camera").
+
+### Vehicle (Matatu) Visual Style Constraints
+
+- **Silhouette-first is the dominant constraint at this system's speed
+  range** — the matatu's outline must read instantly from directly behind
+  and in peripheral vision at 14–25 m/s: boxy minibus proportions,
+  exaggerated roofline/wheel scale over literal accuracy.
+- **Livery vs. gameplay color language**: matatu culture's loud, custom
+  livery art is a real strength to lean into for "market-stall color pops"
+  and place identity — but the Anchor's color philosophy reserves color for
+  gameplay signaling (lanes, hazards, pickup zones) *first*. Livery art must
+  avoid dominant color masses that could later collide with whatever
+  hazard/lane color palette gets locked in a future `/art-bible` pass (e.g.,
+  if hazard-red is chosen downstream, livery shouldn't lean heavily red).
+  **Flag forward to the eventual `/art-bible` pass** — no formal hazard/lane
+  palette exists yet to check against.
+- **Animation scope at this system's level**: wheel spin plus the
+  lane-change bank and brake/boost pitch above is sufficient — no detailed
+  suspension articulation needed, consistent with "texture detail second"
+  and the tight performance budget.
+- Single LOD is likely sufficient for the player vehicle, since the fixed
+  third-person offset keeps it at constant screen distance (traffic-vehicle
+  LOD is Traffic & Obstacle System's concern, not this one's).
+
+### Audio Requirements (system-scoped)
+
+This system exposes audio-relevant signals; it does not fully design audio
+— that's the downstream Audio System GDD's job (Vertical Slice tier).
+
+- Expose continuous normalized speed (or at minimum the three discrete
+  states: Cruising/Boosting/Braking) so engine audio can crossfade/
+  pitch-shift smoothly rather than hard-cutting between loops.
+- Expose discrete trigger events: `boost_started`, `boost_ended`,
+  `brake_started`, `brake_ended`. **No `lane_change` audio trigger hook for
+  now** — lane changes fire too frequently; a hook can be added later if the
+  Audio System GDD wants one, but exposing it now risks over-scoping this
+  GDD.
+- **Boost SFX character** (for the Audio GDD to execute against): a punchy
+  one-shot at trigger — turbo-whoosh or horn-blast (real matatus are known
+  for loud decorative horns, a culturally-authentic hook) — layered under
+  the continuous engine loop, not replacing it, so escalation reads as "same
+  vehicle pushed harder." Reinforces boost's approved "deliberate
+  escalation of risk" fantasy.
+- **Brake SFX character**: **air-brake hiss**, not tire-screech or generic
+  engine-braking growl — matches real matatu culture (air brakes are a
+  distinctive period/cultural detail) while still satisfying the load-bearing
+  "no panic" constraint from Player Fantasy.
+- **Diegetic only** — engine/boost/brake audio stays fully diegetic, no
+  UI-layer stinger. These trigger at high arcade frequency; a UI chime on
+  every trigger would fatigue quickly.
+
+### Visual Identity Anchor Principle Application
+
+- **Silhouette-first** is the most directly load-bearing principle for this
+  system — readability at speed from a follow camera depends entirely on
+  outline clarity, governing both vehicle design and the lean/pitch
+  animation choices above.
+- **Exaggeration over accuracy** governs the animation language (pitch-dive
+  on brake, lean on boost, oversized wheels) — heightened response sells
+  state changes instantly, which "mastery under chaos" requires.
+- **Warm coastal palette** is the weakest direct connection here: boost/
+  brake feedback color is deliberately neutral/desaturated for
+  contrast-based legibility, a real trade-off against "warm palette over
+  generic gray" — resolved in favor of legibility per the Anchor's own
+  stated priority (gameplay info before atmosphere).
+
+### Mobile Performance Constraints Applied
+
+- No volumetric fog/light shafts or other Forward+-only features anywhere
+  in this system's VFX (Forward Mobile renderer only).
+- Speed-line VFX uses a shared/pooled, lightweight screen-space shader
+  approach, not per-event particle instancing, given the <150 draw-call
+  budget.
+- FOV push and vehicle-transform reactivity (lean/pitch) are effectively
+  free and preferred over spawned effects wherever a choice exists.
 
 ## UI Requirements
 
