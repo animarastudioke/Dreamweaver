@@ -1,0 +1,25 @@
+; PROTOTYPE - NOT FOR PRODUCTION
+; Question: Does swipe-based lane dodging + boost/brake feel responsive and satisfying?
+; Date: 2026-09-02
+
+config_version=5
+
+[application]
+
+config/name="Swipe Driving Loop Prototype"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.6", "Mobile")
+
+[display]
+
+window/size/viewport_width=540
+window/size/viewport_height=960
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=true
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
