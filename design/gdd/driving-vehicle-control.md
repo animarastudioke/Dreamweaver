@@ -1,32 +1,34 @@
 # Driving & Vehicle Control
 
-Status: **Draft v0.1** — first pass, unreviewed against any wider Dreamweaver design canon (none exists in this repo yet).
+Status: **Draft v0.2** — core scope decisions confirmed by project owner
+(2026-09-04); implementation-level detail (exact tuning numbers,
+input-parity prototyping) still open. See §9 for what remains.
 
-## Assumptions this draft is built on (unconfirmed — correct or approve)
+## Confirmed Design Decisions
 
-The repository currently contains no design documentation beyond a one-line
-README ("Dreamweaver"). No genre, engine, camera perspective, or existing
-vehicle content was available to ground this section, so the following were
-assumed rather than derived. Anything below should be treated as
-provisional until one of these is confirmed:
+The repository holds no other design documentation, so these were decided
+directly rather than derived from existing canon. Treat this list as the
+source of truth for this feature going forward:
 
-- **Genre/perspective:** third-person action-adventure, open or semi-open
-  world, with vehicles as an optional traversal layer rather than the core
-  loop (i.e. not a racing game or driving sim).
-- **Handling model:** arcade-style, not simulation-grade. Priority is fun
-  and readability over physical accuracy.
+- **Genre/perspective:** third-person action-adventure. Vehicles are an
+  optional traversal layer on top of an on-foot core loop — not a
+  racing game, not a driving sim.
+- **Vehicle roster:** a single vehicle ("the Runner"). No Hauler, no
+  glider/boat, no garage or customization system. If a second vehicle
+  becomes necessary later, it gets its own design pass rather than
+  reviving the cut stubs in v0.1 of this doc.
+- **Handling model:** arcade-style. Priority is fun and readability over
+  physical accuracy.
+- **High-speed exit:** disabled above a speed threshold (see §6) rather
+  than always-allowed. This replaces the v0.1 default, which was flagged
+  as the likely-wrong choice and has been corrected.
 - **Platform:** designed for gamepad first, with keyboard/mouse as a
-  supported fallback.
-- **Vehicle role:** vehicles exist to speed up traversal and unlock
-  set-piece moments (chases, ramps, terrain crossing), not as a
-  progression/customization system in their own right.
-
-If any of these are wrong, the sections below (especially Handling Model
-and Camera) likely need to be rewritten rather than tweaked.
+  supported fallback. (Carried over from v0.1 — not separately revisited;
+  flag if this needs its own confirmation.)
 
 ## 1. Purpose & Design Goals
 
-Vehicles give the player a second traversal mode distinct from on-foot
+The vehicle gives the player a second traversal mode distinct from on-foot
 movement: faster, less precise, and more momentum-driven. Design goals, in
 priority order:
 
@@ -35,28 +37,22 @@ priority order:
 2. **Low floor, high ceiling** — a new player can drive competently in
    under 30 seconds; an experienced player can chain drifts and jumps for
    faster routes.
-3. **Seamless transitions** — entering/exiting a vehicle should never feel
-   like a mode switch with a loading cost; it should read as one continuous
-   action.
+3. **Seamless transitions** — entering/exiting the vehicle should never
+   feel like a mode switch with a loading cost; it should read as one
+   continuous action.
 4. **Non-punishing failure** — crashing should cost time and momentum, not
-   trigger death or heavy penalty, unless the specific
-   encounter design calls for it.
+   trigger death or heavy penalty, unless the specific encounter design
+   calls for it.
 
-## 2. Vehicle Types (initial roster)
+## 2. The Vehicle: "the Runner"
 
-Placeholder roster — assumes a small number of archetypes rather than deep
-customization. **[Open question: does Dreamweaver want a garage/upgrade
-system, or a fixed small set of vehicles?]**
+A single, fully player-controlled vehicle — light, agile, easy to drift,
+easy to spin out if oversteered. No roster table: this is the only
+vehicle in scope for this pass, so there is nothing to compare it against.
 
-| Vehicle | Role | Handling character |
-|---|---|---|
-| Runner (light car/bike) | Default, agile, first unlocked | Fast acceleration, tight turning, low mass — easy to drift, easy to spin out |
-| Hauler (heavy vehicle) | Terrain/obstacle traversal | Slow acceleration, high mass, can push through light obstacles, poor turning |
-| Glider/boat (context vehicle) | Traversal over water/air gaps | Different control scheme (see 4.3), likely scripted/limited-use |
-
-Only the Runner is assumed to be fully player-controlled with free-roam
-physics; the other two are sketched at low confidence and need their own
-passes once the roster is confirmed.
+If the project later wants a second vehicle (e.g. something heavier for
+terrain traversal, or a context-specific water/air crossing), that is new
+scope requiring its own design section — not a re-expansion of this one.
 
 ## 3. Input Mapping
 
@@ -65,7 +61,7 @@ passes once the roster is confirmed.
 - Left trigger — brake / reverse (hold after stop)
 - Left stick — steer
 - Face button (e.g. A/Cross) — handbrake / drift
-- Face button (e.g. B/Circle) — exit vehicle
+- Face button (e.g. B/Circle) — exit vehicle (see §6 for speed gating)
 - Right stick — free-look camera while driving
 
 ### Keyboard/mouse (secondary)
@@ -73,13 +69,13 @@ passes once the roster is confirmed.
 - A / D — steer
 - Space — handbrake / drift
 - Mouse — free-look camera
-- F (or context prompt) — exit vehicle
+- F (or context prompt) — exit vehicle (see §6 for speed gating)
 
 **Risk flagged:** dual-scheme parity (handbrake-drift feel on analog stick
 vs. digital A/D) tends to diverge in practice — the keyboard version will
 feel snappier/twitchier than the gamepad version unless steering input is
 smoothed asymmetrically per input device. Needs a prototype pass, not just
-a mapping table.
+a mapping table. Still open — see §9.
 
 ## 4. Handling Model
 
@@ -95,22 +91,16 @@ a mapping table.
   you're going."
 
 ### 4.2 Momentum & collision
-- Vehicles retain momentum through minor collisions (scenery, low
+- The vehicle retains momentum through minor collisions (scenery, low
   obstacles) with a speed penalty, rather than hard-stopping.
 - Hard stops (walls, large obstacles) reduce speed sharply and can
   eject the player from the vehicle above a velocity threshold — needs a
   tuned threshold so this reads as "that was a bad crash" and not as
   random punishment for clipping a curb.
-- **[Open question: does the vehicle take persistent damage, or is it a
-  stateless traversal tool that resets on re-entry?]** This draft assumes
-  the latter (no persistent vehicle damage) since no economy/repair system
-  is implied anywhere in the (currently empty) design canon.
-
-### 4.3 Non-Runner vehicles
-Not designed in this pass — flagged as a gap rather than guessed at, since
-a Hauler and a glider/boat plausibly need entirely different control
-verbs (push-weight vs. lift/thrust) that a single "driving" model doesn't
-cover well.
+- No persistent vehicle damage: the vehicle is a stateless traversal
+  tool that resets on re-entry rather than accumulating damage requiring
+  repair. Consistent with cutting the garage/customization system in §2 —
+  there's no economy for a repair system to plug into.
 
 ## 5. Camera
 
@@ -126,15 +116,19 @@ cover well.
 
 ## 6. Enter / Exit Flow
 
-- Approach a vehicle in range → context prompt appears → single button
+- Approach the vehicle in range → context prompt appears → single button
   press mounts, with a short (assumed ~0.3–0.5s) blend animation, no hard
   cut.
-- Exit is available at any speed **[open question: should high-speed exit
-  be disabled or should it eject the player with fall-damage-style
-  consequences? Not specified anywhere yet]** — this draft assumes exit is
-  always allowed and simply drops the player at current velocity, which is
-  probably the riskier of the two options and should be the first thing
-  challenged in review.
+- **Exit is speed-gated:** below the threshold, exit is available at any
+  time and simply drops the player at current position. Above the
+  threshold, the exit prompt/input is disabled — the player must slow down
+  first. This replaces the v0.1 "always allow, drop at current velocity"
+  default, which was flagged as the riskier option and has been corrected
+  per the confirmed decision in the header.
+- **Open (tuning-level, not design-level):** the exact speed threshold
+  and what feedback communicates "too fast to exit" to the player (HUD
+  icon greyed out? a rejection sound?) — needs a prototype pass, not a
+  spec number invented here.
 
 ## 7. HUD / Feedback
 
@@ -142,9 +136,12 @@ cover well.
   HUD/UI design direction, which does not exist yet in this repo.
 - Drift state indicator (e.g. color shift on speed bar) while
   handbrake-drifting.
+- Exit-availability indicator, tied to the speed-gated exit rule in §6
+  (e.g. the exit prompt dims/disables above the threshold rather than
+  silently failing to respond).
 - Damage/collision feedback via camera shake + a short hit-flash, not a
   persistent health bar (consistent with the "no persistent vehicle
-  damage" assumption in §4.2).
+  damage" decision in §4.2).
 
 ## 8. Accessibility
 
@@ -155,19 +152,21 @@ cover well.
 
 ## 9. Open Questions / Risks (rollup)
 
-These are the items most likely to change the shape of this document once
-real project context exists:
+Scope-level questions from v0.1 are resolved (see "Confirmed Design
+Decisions" above). What's left is implementation-level:
 
-1. Is Dreamweaver even a genre where vehicles make sense as described, or
-   is this entire "arcade traversal vehicle" framing wrong for the game?
-2. Full vehicle roster and whether there's progression/customization.
-3. Non-Runner (Hauler, glider/boat) control schemes — currently undesigned.
-4. Vehicle damage/repair — assumed none; unconfirmed.
-5. High-speed exit consequences — assumed none; flagged as likely wrong.
-6. Keyboard vs. gamepad drift-feel parity — needs a prototype, not a spec.
+1. **Keyboard vs. gamepad drift-feel parity** (§3) — needs a prototype,
+   not a spec. Highest-priority remaining item since it affects core feel.
+2. **Hard-stop ejection threshold** (§4.2) — needs tuning, not a guess.
+3. **Exit speed threshold and its feedback** (§6) — needs tuning + a UX
+   pass on how "can't exit yet" reads to the player.
+4. **Platform assumption** (gamepad-first) — carried over from v0.1
+   without separate confirmation; flag if it needs its own check.
 
 ## 10. Non-Goals (this pass)
 
 - No racing/competitive mode design.
-- No vehicle economy, purchasing, or cosmetic customization.
-- No multiplayer/network sync considerations for vehicle physics.
+- No second vehicle, vehicle economy, or cosmetic customization — see §2.
+- No multiplayer/network sync considerations for vehicle physics (not
+  confirmed either way — removed from non-goals in v0.2 rather than
+  asserted, since claiming a non-goal implies knowing the actual goals).
