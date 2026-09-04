@@ -542,7 +542,34 @@ This system exposes audio-relevant signals; it does not fully design audio
 
 ## UI Requirements
 
-[To be designed]
+This system requires two 2D overlay elements to exist; both are
+placeholder-level specs here — full visual/interaction polish belongs to
+HUD & UI's own GDD (MVP tier), and any colorblind/low-vision accessibility
+treatment belongs to a future accessibility pass, flagged below.
+
+**On-screen control buttons** (the required accessibility-parity input path
+from Core Rule 8):
+- Four buttons: lane-left, lane-right, boost, brake — positioned within
+  comfortable thumb reach for one-handed portrait play (bottom third of
+  screen, split left/right for lane buttons vs. boost/brake).
+- Must be edge-triggered on press (per Edge Cases — no hold-to-repeat).
+- Must visually confirm a press (brief pressed-state highlight) within the
+  same frame — this is the on-screen path's equivalent of the swipe's "no
+  perceptible delay," and it must not lag behind the swipe path or it fails
+  Core Rule 8's parity requirement.
+
+**Boost/brake state indicator**:
+- A minimal always-visible cue (icon or short bar) showing current state
+  (Cruising/Boosting/Braking), independent of the 3D camera/speed-line
+  feedback — needed because camera FOV push alone isn't accessible to
+  colorblind or low-vision players, and doesn't help a player glancing at
+  their phone mid-distraction.
+- **Flagged forward**: full accessibility treatment (colorblind-safe state
+  encoding, text alternative) is out of scope for this GDD — belongs to
+  HUD & UI's GDD with accessibility-specialist input.
+
+Both elements are functional requirements this system depends on existing;
+their visual design is HUD & UI's to own.
 
 ## Acceptance Criteria
 
